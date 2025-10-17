@@ -1,0 +1,56 @@
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Node modules
+node_modules/
+**/node_modules/
+
+# Build outputs / caches
+.dist/
+dist/
+build/
+.next/
+.next/cache/
+out/
+coverage/
+.cache/
+.parcel-cache/
+.turbo/
+.vercel/
+
+# Logs
+logs/
+**/logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.eslintcache
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# TypeScript
+*.tsbuildinfo
+
+# Legacy local uploads (backend/public/uploads or frontend/public/uploads)
+public/uploads/
+backend/public/uploads/
+frontend/public/uploads/
+
+# Firebase local/debug artifacts
+firebase-debug.log
+*.serviceAccount.json
+serviceAccount*.json
+firebase-*.json
+
+# Misc
+pids
+*.pid
+*.pid.lock
