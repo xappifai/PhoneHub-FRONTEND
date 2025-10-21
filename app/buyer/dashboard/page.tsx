@@ -21,11 +21,13 @@ import {
   Filter,
   SortAsc,
   SortDesc,
-  X
+  X,
+  Bookmark
 } from 'lucide-react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useBuyerStore } from '@/store/buyer-store'
+import ProductDetailModal from '@/components/product-detail-modal'
 import api from '@/lib/api-client'
 import toast from 'react-hot-toast'
 
@@ -95,8 +97,10 @@ export default function BuyerDashboard() {
   const [sortBy, setSortBy] = useState<'price-asc' | 'price-desc' | 'name' | 'newest'>('newest')
   const [brands, setBrands] = useState<string[]>([])
   const [hasSearched, setHasSearched] = useState(false)
+  const [showSaveSearchModal, setShowSaveSearchModal] = useState(false)
+  const [searchName, setSearchName] = useState('')
   
-  const { wishlist, compare, recentSearches, addRecentSearch, toggleWishlist, addToCompare } = useBuyerStore()
+  const { wishlist, compare, recentSearches, addRecentSearch, toggleWishlist, addToCompare, addSavedSearch, savedSearches } = useBuyerStore()
 
   // Helper function to validate image URL (supports Firebase storage URLs)
   const isValidImageUrl = (url: string | undefined | null): boolean => {
@@ -138,6 +142,16 @@ export default function BuyerDashboard() {
         
         // Track product view for recently viewed
         addRecentSearch(fullProduct)
+
+        // Record view against vendor storefront analytics if storefront is known
+        try {
+          const storefrontId = fullProduct?.storefront?._id
+          if (storefrontId && fullProduct?._id) {
+            await api.post(`/storefront/view/${fullProduct._id}`, { storefrontId })
+          }
+        } catch (e) {
+          // Non-blocking; ignore failures here
+        }
       }
     } catch (error) {
       console.error('Error fetching product details:', error)
@@ -285,6 +299,18 @@ export default function BuyerDashboard() {
     setSortBy('newest')
   }
 
+  const handleSaveSearch = () => {
+    if (!searchName.trim()) {
+      toast.error('Please enter a name for this search')
+      return
+    }
+
+    addSavedSearch(searchName, searchQuery, filters)
+    toast.success('Search saved successfully!')
+    setShowSaveSearchModal(false)
+    setSearchName('')
+  }
+
   const handleFilterChange = (key: string, value: string) => {
     setFilters(prev => ({
       ...prev,
@@ -387,6 +413,7 @@ export default function BuyerDashboard() {
   const recentlyViewedProducts = recentSearches.slice(0, 4)
 
   return (
+    <>
     <ProtectedRoute allowedRoles={['buyer']}>
       <div className="flex min-h-screen bg-gray-50 dark:bg-gray-900">
         <DashboardSidebar userRole="buyer" />
@@ -528,10 +555,16 @@ export default function BuyerDashboard() {
                       Filters
                     </Button>
                     {hasSearched && (
-                      <Button variant="outline" onClick={clearSearch}>
-                        <X className="h-4 w-4 mr-2" />
-                        Clear
-                      </Button>
+                      <>
+                        <Button variant="outline" onClick={() => setShowSaveSearchModal(true)}>
+                          <Bookmark className="h-4 w-4 mr-2" />
+                          Save Search
+                        </Button>
+                        <Button variant="outline" onClick={clearSearch}>
+                          <X className="h-4 w-4 mr-2" />
+                          Clear
+                        </Button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -746,5 +779,86 @@ export default function BuyerDashboard() {
         </div>
       </div>
     </ProtectedRoute>
+    <ProductDetailModal 
+      open={isProductModalOpen} 
+      onOpenChange={setIsProductModalOpen} 
+      product={selectedProduct as any}
+      viewerRole="buyer"
+    />
+    
+    {/* Save Search Modal */}
+    {showSaveSearchModal && (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white dark:bg-gray-800 rounded-lg max-w-md w-full p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white">
+              Save Search
+            </h2>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setShowSaveSearchModal(false)
+                setSearchName('')
+              }}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Search Name
+              </label>
+              <Input
+                value={searchName}
+                onChange={(e) => setSearchName(e.target.value)}
+                placeholder="E.g., Samsung Phones Under 50k"
+                autoFocus
+              />
+            </div>
+            
+            <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded-lg">
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Search Details:
+              </p>
+              <ul className="space-y-1 text-sm text-gray-600 dark:text-gray-400">
+                {searchQuery && (
+                  <li>• Query: "{searchQuery}"</li>
+                )}
+                {filters.category && (
+                  <li>• Category: {filters.category}</li>
+                )}
+                {filters.brand && (
+                  <li>• Brand: {filters.brand}</li>
+                )}
+                {(filters.minPrice || filters.maxPrice) && (
+                  <li>• Price: {filters.minPrice || '0'} - {filters.maxPrice || '∞'}</li>
+                )}
+              </ul>
+            </div>
+            
+            <div className="flex gap-3">
+              <Button onClick={handleSaveSearch} className="flex-1">
+                <Bookmark className="h-4 w-4 mr-2" />
+                Save
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setShowSaveSearchModal(false)
+                  setSearchName('')
+                }}
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   )
 }

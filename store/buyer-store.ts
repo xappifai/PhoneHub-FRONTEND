@@ -7,6 +7,15 @@ export interface BuyerProfile {
   email?: string
   phone?: string
   preferredContact?: 'whatsapp' | 'email'
+  address?: string
+  city?: string
+  interests?: string[]
+  notifications?: {
+    email?: boolean
+    wishlistSale?: boolean
+    inquiryResponses?: boolean
+    newProducts?: boolean
+  }
 }
 
 interface RecentSearch {
@@ -24,10 +33,26 @@ interface RecentSearch {
   timestamp: string
 }
 
+interface SavedSearch {
+  id: string
+  name: string
+  query: string
+  filters: {
+    category?: string
+    brand?: string
+    minPrice?: string
+    maxPrice?: string
+    location?: string
+  }
+  createdAt: string
+  lastRun?: string
+}
+
 interface BuyerState {
   wishlist: string[]
   compare: string[]
   recentSearches: RecentSearch[]
+  savedSearches: SavedSearch[]
   profile: BuyerProfile
   toggleWishlist: (productId: string) => void
   addToCompare: (productId: string) => void
@@ -35,6 +60,9 @@ interface BuyerState {
   clearCompare: () => void
   addRecentSearch: (product: any) => void
   clearRecentSearches: () => void
+  addSavedSearch: (name: string, query: string, filters: any) => void
+  removeSavedSearch: (id: string) => void
+  updateSavedSearchLastRun: (id: string) => void
   updateProfile: (p: Partial<BuyerProfile>) => void
 }
 
@@ -44,7 +72,16 @@ export const useBuyerStore = create<BuyerState>()(
       wishlist: [],
       compare: [],
       recentSearches: [],
-      profile: { preferredContact: 'whatsapp' },
+      savedSearches: [],
+      profile: { 
+        preferredContact: 'whatsapp',
+        notifications: {
+          email: true,
+          wishlistSale: true,
+          inquiryResponses: true,
+          newProducts: false
+        }
+      },
 
       toggleWishlist: (productId) =>
         set((state) => ({
@@ -89,6 +126,28 @@ export const useBuyerStore = create<BuyerState>()(
         }),
 
       clearRecentSearches: () => set({ recentSearches: [] }),
+
+      addSavedSearch: (name, query, filters) =>
+        set((state) => {
+          const savedSearch: SavedSearch = {
+            id: `search_${Date.now()}`,
+            name,
+            query,
+            filters,
+            createdAt: new Date().toISOString()
+          }
+          return { savedSearches: [savedSearch, ...state.savedSearches].slice(0, 10) } // keep last 10
+        }),
+
+      removeSavedSearch: (id) =>
+        set((state) => ({ savedSearches: state.savedSearches.filter((s) => s.id !== id) })),
+
+      updateSavedSearchLastRun: (id) =>
+        set((state) => ({
+          savedSearches: state.savedSearches.map((s) =>
+            s.id === id ? { ...s, lastRun: new Date().toISOString() } : s
+          )
+        })),
 
       updateProfile: (p) => set((state) => ({ profile: { ...state.profile, ...p } })),
     }),

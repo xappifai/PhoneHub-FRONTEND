@@ -4,17 +4,21 @@ import React, { useState } from 'react'
 import { Dialog, DialogHeader, DialogTitle, DialogClose, DialogContent } from '@/components/ui/dialog'
 import { ProductItem } from '@/store/inventory-store'
 import { formatCurrency } from '@/lib/utils'
-import { Badge, Star, Package, AlertCircle, Calendar, Tag, Barcode } from 'lucide-react'
+import { Badge, Star, Package, AlertCircle, Calendar, Tag, Barcode, MessageCircle, Phone } from 'lucide-react'
 import Image from 'next/image'
+import { Button } from '@/components/ui/button'
+import InquiryForm from '@/components/inquiry-form'
 
 interface ProductDetailModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   product: ProductItem | null
+  viewerRole?: 'buyer' | 'vendor'
 }
 
-export default function ProductDetailModal({ open, onOpenChange, product }: ProductDetailModalProps) {
+export default function ProductDetailModal({ open, onOpenChange, product, viewerRole = 'vendor' }: ProductDetailModalProps) {
   const [selectedImageIndex, setSelectedImageIndex] = useState(0)
+  const [showInquiryForm, setShowInquiryForm] = useState(false)
 
   if (!product) return null
 
@@ -25,6 +29,34 @@ export default function ProductDetailModal({ open, onOpenChange, product }: Prod
   }
 
   const stockStatus = getStockStatus(product.quantity, product.minStock)
+  const isBuyer = viewerRole === 'buyer'
+  
+  // Extract vendor info from product
+  const vendorInfo = {
+    name: (product as any)?.vendor?.businessName || 'Vendor',
+    phone: (product as any)?.vendor?.phone || '',
+    whatsapp: (product as any)?.vendor?.phone || ''
+  }
+  
+  // Generate WhatsApp link
+  const getWhatsAppLink = () => {
+    if (!vendorInfo.whatsapp) return '#'
+    const message = encodeURIComponent(
+      `Hi, I'm interested in ${product.name} (${product.brand} ${product.model}). Is it still available?`
+    )
+    return `https://wa.me/${vendorInfo.whatsapp.replace(/[^0-9]/g, '')}?text=${message}`
+  }
+
+  // Determine a safe selling price to display (supports different payload shapes)
+  const displaySellingPrice: number = (() => {
+    const direct = Number((product as any).sellingPrice ?? (product as any).price)
+    if (!Number.isNaN(direct) && direct >= 0) return direct
+    const individual = Array.isArray(product.individualSellingPrices) ? product.individualSellingPrices.map((p:any)=>Number(p)).filter((n)=>!Number.isNaN(n)) : []
+    if (individual.length > 0) {
+      return individual.reduce((sum, n) => sum + n, 0) / individual.length
+    }
+    return 0
+  })()
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -107,32 +139,42 @@ export default function ProductDetailModal({ open, onOpenChange, product }: Prod
                   </span>
                 )}
               </div>
+              {/* Storefront link for buyers */}
+              {isBuyer && (product as any)?.storefront?.url && (
+                <div className="mt-2">
+                  <a
+                    href={(product as any).storefront.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center px-3 py-1 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700"
+                  >
+                    Visit Vendor Storefront
+                  </a>
+                </div>
+              )}
             </div>
 
             {/* Price */}
             <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg">
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Purchase Price</p>
-                  <p className="text-xl font-semibold text-gray-900 dark:text-white">
-                    {formatCurrency(product.purchasePrice)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    {product.category === 'Mobile Phones' && product.individualSellingPrices && product.individualSellingPrices.length > 0 
-                      ? 'Average Selling Price' 
-                      : 'Selling Price'
-                    }
-                  </p>
-                  <p className="text-xl font-semibold text-secondary">
-                    {formatCurrency(product.sellingPrice)}
+                {!isBuyer && (
+                  <div>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">Purchase Price</p>
+                    <p className="text-xl font-semibold text-gray-900 dark:text-white">
+                      {formatCurrency(product.purchasePrice)}
+                    </p>
+                  </div>
+                )}
+                <div className={isBuyer ? 'col-span-2' : ''}>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Selling Price</p>
+                  <p className="text-2xl font-semibold text-secondary">
+                    {formatCurrency(displaySellingPrice)}
                   </p>
                 </div>
               </div>
-              
-              {/* Individual Selling Prices for Mobile Phones */}
-              {product.category === 'Mobile Phones' && product.individualSellingPrices && product.individualSellingPrices.length > 0 && (
+
+              {/* Individual Selling Prices (vendor view only) */}
+              {!isBuyer && product.category === 'Mobile Phones' && product.individualSellingPrices && product.individualSellingPrices.length > 0 && (
                 <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
                   <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Individual Device Prices</p>
                   <div className="grid grid-cols-2 gap-2">
@@ -146,15 +188,19 @@ export default function ProductDetailModal({ open, onOpenChange, product }: Prod
                 </div>
               )}
 
-              <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
-                <p className="text-sm text-gray-600 dark:text-gray-400">Profit Margin</p>
-                <p className="text-lg font-semibold text-green-600">
-                  {formatCurrency(product.sellingPrice - product.purchasePrice)} ({((product.sellingPrice - product.purchasePrice) / product.purchasePrice * 100).toFixed(1)}%)
-                </p>
-              </div>
+              {/* Profit margin (vendor only) */}
+              {!isBuyer && (
+                <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Profit Margin</p>
+                  <p className="text-lg font-semibold text-green-600">
+                    {formatCurrency(product.sellingPrice - product.purchasePrice)} ({((product.sellingPrice - product.purchasePrice) / product.purchasePrice * 100).toFixed(1)}%)
+                  </p>
+                </div>
+              )}
             </div>
 
-            {/* Stock Status */}
+            {/* Stock Status (vendor only) */}
+            {!isBuyer && (
             <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
@@ -173,6 +219,7 @@ export default function ProductDetailModal({ open, onOpenChange, product }: Prod
                 </div>
               )}
             </div>
+            )}
 
             {/* Category and Identifiers */}
             <div className="grid grid-cols-2 gap-4">
@@ -183,7 +230,7 @@ export default function ProductDetailModal({ open, onOpenChange, product }: Prod
                   <p className="text-sm text-gray-500 dark:text-gray-400">{product.subcategory}</p>
                 )}
               </div>
-              {product.category !== 'Mobile Phones' && (
+              {!isBuyer && product.category !== 'Mobile Phones' && (
                 <div>
                   <p className="text-sm text-gray-600 dark:text-gray-400">SKU</p>
                   <p className="font-medium text-gray-900 dark:text-white font-mono">{product.sku}</p>
@@ -192,7 +239,7 @@ export default function ProductDetailModal({ open, onOpenChange, product }: Prod
                   )}
                 </div>
               )}
-              {product.barcode && product.category === 'Mobile Phones' && (
+              {!isBuyer && product.barcode && product.category === 'Mobile Phones' && (
                 <div>
                   <p className="text-sm text-gray-600 dark:text-gray-400">Barcode</p>
                   <p className="font-medium text-gray-900 dark:text-white font-mono">{product.barcode}</p>
@@ -200,8 +247,8 @@ export default function ProductDetailModal({ open, onOpenChange, product }: Prod
               )}
             </div>
 
-            {/* Device Details for Mobile Phones */}
-            {product.category === 'Mobile Phones' && product.imeiNumbers && product.imeiNumbers.length > 0 && (
+            {/* Device Details for Mobile Phones (vendor only) */}
+            {!isBuyer && product.category === 'Mobile Phones' && product.imeiNumbers && product.imeiNumbers.length > 0 && (
               <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 p-5 rounded-xl border border-blue-200 dark:border-blue-800 shadow-sm">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
@@ -262,8 +309,8 @@ export default function ProductDetailModal({ open, onOpenChange, product }: Prod
               </div>
             )}
 
-            {/* Color Information for Same Color Variant */}
-            {product.category === 'Mobile Phones' && product.colorVariant === 'same' && product.colors && product.colors[0] && (
+            {/* Color Information for Same Color Variant (vendor only) */}
+            {!isBuyer && product.category === 'Mobile Phones' && product.colorVariant === 'same' && product.colors && product.colors[0] && (
               <div className="bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 p-4 rounded-lg border border-purple-200 dark:border-purple-800">
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
@@ -311,17 +358,63 @@ export default function ProductDetailModal({ open, onOpenChange, product }: Prod
               </div>
             )}
 
-            {/* Timestamps */}
-            <div className="text-xs text-gray-500 dark:text-gray-400 pt-4 border-t border-gray-200 dark:border-gray-700">
-              <div className="flex items-center gap-2 mb-1">
-                <Calendar className="h-3 w-3" />
-                <span>Created: {new Date(product.createdAt).toLocaleString()}</span>
+            {/* Timestamps (vendor only) */}
+            {!isBuyer && (
+              <div className="text-xs text-gray-500 dark:text-gray-400 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <div className="flex items-center gap-2 mb-1">
+                  <Calendar className="h-3 w-3" />
+                  <span>Created: {new Date(product.createdAt).toLocaleString()}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Calendar className="h-3 w-3" />
+                  <span>Updated: {new Date(product.updatedAt).toLocaleString()}</span>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Calendar className="h-3 w-3" />
-                <span>Updated: {new Date(product.updatedAt).toLocaleString()}</span>
+            )}
+
+            {/* Buyer Contact Options */}
+            {isBuyer && !showInquiryForm && (
+              <div className="pt-6 border-t border-gray-200 dark:border-gray-700">
+                <h3 className="font-semibold text-gray-900 dark:text-white mb-4">
+                  Contact Vendor
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <Button
+                    onClick={() => setShowInquiryForm(true)}
+                    className="w-full"
+                  >
+                    <MessageCircle className="h-4 w-4 mr-2" />
+                    Send Inquiry
+                  </Button>
+                  {vendorInfo.whatsapp && (
+                    <Button
+                      variant="outline"
+                      onClick={() => window.open(getWhatsAppLink(), '_blank')}
+                      className="w-full bg-green-50 hover:bg-green-100 text-green-700 border-green-300"
+                    >
+                      <Phone className="h-4 w-4 mr-2" />
+                      WhatsApp Vendor
+                    </Button>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
+
+            {/* Inquiry Form (buyer only) */}
+            {isBuyer && showInquiryForm && (
+              <div className="pt-6 border-t border-gray-200 dark:border-gray-700">
+                <InquiryForm
+                  productId={(product as any)._id || (product as any).id || ''}
+                  productName={product.name}
+                  vendorName={vendorInfo.name}
+                  onClose={() => setShowInquiryForm(false)}
+                  onSuccess={() => {
+                    setShowInquiryForm(false)
+                    onOpenChange(false)
+                  }}
+                />
+              </div>
+            )}
           </div>
         </div>
       </DialogContent>

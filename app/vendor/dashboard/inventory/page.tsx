@@ -56,9 +56,11 @@ export default function InventoryPage() {
 
   // Filter products based on search, category, stock status, and price range
   const filteredProducts = products.filter(product => {
-    const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         product.brand.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         product.sku.toLowerCase().includes(searchQuery.toLowerCase())
+    const q = (searchQuery || '').toLowerCase()
+    const matchesSearch = product.name.toLowerCase().includes(q) ||
+                         product.brand.toLowerCase().includes(q) ||
+                         (product.sku || '').toLowerCase().includes(q) ||
+                         (Array.isArray(product.imeiNumbers) && product.imeiNumbers.some(imei => (imei || '').toString().includes(searchQuery)))
     
     const matchesCategory = selectedCategory === 'all' || product.category === selectedCategory
     
@@ -549,7 +551,7 @@ export default function InventoryPage() {
       
       <AddProductDialog open={isAddOpen} onOpenChange={setIsAddOpen} />
       <EditProductDialog open={isEditOpen} onOpenChange={setIsEditOpen} product={selectedProduct} />
-      <ProductDetailModal open={isDetailOpen} onOpenChange={setIsDetailOpen} product={selectedProduct} />
+      <ProductDetailModal open={isDetailOpen} onOpenChange={setIsDetailOpen} product={selectedProduct as any} viewerRole="vendor" />
       <SaleProductDialog open={isSaleOpen} onOpenChange={setIsSaleOpen} product={selectedProduct} />
     </ProtectedRoute>
   )

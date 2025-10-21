@@ -13,6 +13,7 @@ import { useInventoryStore, ProductCategory, ProductItem } from '@/store/invento
 import { Upload, ImageIcon, Info } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { uploadFileToFirebase, compressImageForUpload } from '@/lib/firebase-client'
+import api from '@/lib/api-client'
 
 const CATEGORY_LITERALS = [
   'Mobile Phones',
@@ -148,9 +149,11 @@ export default function AddProductDialog({ open, onOpenChange }: AddProductDialo
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [imeiNumbers, setImeiNumbers] = useState<string[]>([])
   const [sellingPrices, setSellingPrices] = useState<number[]>([])
+  const [purchasePrices, setPurchasePrices] = useState<number[]>([])
   const [colors, setColors] = useState<string[]>([])
   const [colorVariant, setColorVariant] = useState<'same' | 'different'>('same')
   const [priceVariant, setPriceVariant] = useState<'same' | 'different'>('same')
+  const [purchasePriceVariant, setPurchasePriceVariant] = useState<'same' | 'different'>('same')
   const [singleColor, setSingleColor] = useState('')
   const [isProcessingImages, setIsProcessingImages] = useState(false)
 
@@ -172,23 +175,25 @@ export default function AddProductDialog({ open, onOpenChange }: AddProductDialo
       setSpecs({})
       setImeiNumbers([])
       setSellingPrices([])
+      setPurchasePrices([])
       setColors([])
       setColorVariant('same')
       setPriceVariant('same')
+      setPurchasePriceVariant('same')
       setSingleColor('')
       setUploadPreview([])
       setSelectedFiles([])
     }
   }, [open, reset])
 
-  // Update IMEI, selling price, and color arrays when quantity changes
+  // Update IMEI, selling price, purchase price, and color arrays when quantity changes
   React.useEffect(() => {
     if (selectedCategory === 'Mobile Phones' && numericQuantity > 0) {
-      // Always generate IMEI fields based on quantity
+      // Create empty IMEI fields based on quantity (no auto-generation)
       setImeiNumbers(prevImeiNumbers => {
         const newImeiNumbers = Array(numericQuantity).fill('').map((_, i) => {
-          // Keep existing IMEI if available, otherwise generate new one
-          return prevImeiNumbers[i] || generateIMEI()
+          // Keep existing IMEI if available, otherwise empty string
+          return prevImeiNumbers[i] || ''
         })
         return newImeiNumbers
       })
@@ -200,6 +205,13 @@ export default function AddProductDialog({ open, onOpenChange }: AddProductDialo
         })
       }
       
+      if (purchasePriceVariant === 'different') {
+        setPurchasePrices(prevPurchasePrices => {
+          const newPurchasePrices = Array(numericQuantity).fill(0).map((_, i) => prevPurchasePrices[i] || 0)
+          return newPurchasePrices
+        })
+      }
+      
       if (colorVariant === 'different') {
         setColors(prevColors => {
           const newColors = Array(numericQuantity).fill('').map((_, i) => prevColors[i] || '')
@@ -207,7 +219,7 @@ export default function AddProductDialog({ open, onOpenChange }: AddProductDialo
         })
       }
     }
-  }, [numericQuantity, selectedCategory, colorVariant, priceVariant])
+  }, [numericQuantity, selectedCategory, colorVariant, priceVariant, purchasePriceVariant])
 
   // Generate IMEI-like numbers (15 digits)
   function generateIMEI(): string {
@@ -319,6 +331,40 @@ export default function AddProductDialog({ open, onOpenChange }: AddProductDialo
     })
   }
 
+  // Validate IMEI format: only ensure exactly 15 digits (no Luhn check)
+  const validateIMEI = (imei: string): boolean => {
+    return /^\d{15}$/.test(imei);
+  };
+
+  // Check for duplicate IMEI numbers in the current form
+  const checkDuplicateIMEIs = (imeis: string[]): string[] => {
+    const duplicates: string[] = [];
+    const seen = new Set<string>();
+    
+    imeis.forEach((imei, index) => {
+      if (imei.trim() !== '') {
+        if (seen.has(imei)) {
+          duplicates.push(`Device ${index + 1}`);
+        } else {
+          seen.add(imei);
+        }
+      }
+    });
+    
+    return duplicates;
+  };
+
+  // Check IMEI uniqueness against database
+  const checkIMEIUniqueness = async (imeis: string[]): Promise<{unique: boolean, duplicates: any[], existing: any[]}> => {
+    try {
+      const { data } = await api.post('/products/check-imei', { imeiNumbers: imeis })
+      return data?.data ?? { unique: true, duplicates: [], existing: [] }
+    } catch (error) {
+      console.warn('IMEI uniqueness check failed (allowing submit):', error)
+      return { unique: true, duplicates: [], existing: [] }
+    }
+  };
+
   const onSubmit: SubmitHandler<FormValues> = async (data) => {
     console.log('onSubmit called with data:', data)
     try {
@@ -341,6 +387,50 @@ export default function AddProductDialog({ open, onOpenChange }: AddProductDialo
         }
         if (data.quantity <= 0) {
           toast.error('Please enter a valid quantity')
+          return
+        }
+        
+        // Validate IMEI numbers
+        const validImeis = imeiNumbers.filter(imei => imei.trim() !== '');
+        if (validImeis.length !== data.quantity) {
+          toast.error(`Please enter IMEI numbers for all ${data.quantity} devices`)
+          return
+        }
+        
+        // Check IMEI format (15 digits only)
+        const invalidImeis: string[] = [];
+        validImeis.forEach((imei, index) => {
+          if (!validateIMEI(imei)) {
+            invalidImeis.push(`Device ${index + 1}`);
+          }
+        });
+        
+        if (invalidImeis.length > 0) {
+          toast.error(`Invalid IMEI format for: ${invalidImeis.join(', ')}. IMEI must be exactly 15 digits.`)
+          return
+        }
+        
+        // Check for duplicate IMEIs in form
+        const duplicateImeis = checkDuplicateIMEIs(validImeis);
+        if (duplicateImeis.length > 0) {
+          toast.error(`Duplicate IMEI numbers found for: ${duplicateImeis.join(', ')}`)
+          return
+        }
+        
+        // Check IMEI uniqueness against database
+        const uniquenessCheck = await checkIMEIUniqueness(validImeis);
+        if (!uniquenessCheck.unique) {
+          let errorMessage = 'IMEI validation failed:\n';
+          
+          if (uniquenessCheck.duplicates.length > 0) {
+            errorMessage += `Duplicate IMEIs in form: ${uniquenessCheck.duplicates.map(d => `Device ${d.deviceNumber}`).join(', ')}\n`;
+          }
+          
+          if (uniquenessCheck.existing.length > 0) {
+            errorMessage += `IMEIs already exist: ${uniquenessCheck.existing.map(e => `${e.imei} (${e.brand} ${e.model})`).join(', ')}`;
+          }
+          
+          toast.error(errorMessage);
           return
         }
       } else {
@@ -374,10 +464,20 @@ export default function AddProductDialog({ open, onOpenChange }: AddProductDialo
         ? sellingPrices.filter(price => price > 0).length > 0 ? sellingPrices.filter(price => price > 0) : undefined
         : undefined
 
+      // Prepare purchase prices
+      const finalPurchasePrices = selectedCategory === 'Mobile Phones' && purchasePriceVariant === 'different'
+        ? purchasePrices.filter(price => price > 0).length > 0 ? purchasePrices.filter(price => price > 0) : undefined
+        : undefined
+
       // Calculate average selling price
       const averageSellingPrice = selectedCategory === 'Mobile Phones' && finalSellingPrices && finalSellingPrices.length > 0
         ? finalSellingPrices.reduce((sum, price) => sum + price, 0) / finalSellingPrices.length
         : data.sellingPrice
+
+      // Calculate average purchase price
+      const averagePurchasePrice = selectedCategory === 'Mobile Phones' && finalPurchasePrices && finalPurchasePrices.length > 0
+        ? finalPurchasePrices.reduce((sum, price) => sum + price, 0) / finalPurchasePrices.length
+        : data.purchasePrice
 
       console.log('Final colors:', finalColors)
       console.log('Final selling prices:', finalSellingPrices)
@@ -426,7 +526,7 @@ export default function AddProductDialog({ open, onOpenChange }: AddProductDialo
         sku: productSku,
         barcode: data.barcode,
         description: data.description,
-        purchasePrice: data.purchasePrice,
+        purchasePrice: averagePurchasePrice,
         sellingPrice: averageSellingPrice,
         quantity: data.quantity,
         minStock: data.minStock,
@@ -437,9 +537,11 @@ export default function AddProductDialog({ open, onOpenChange }: AddProductDialo
         variants: [],
         imeiNumbers: selectedCategory === 'Mobile Phones' ? imeiNumbers.filter(imei => imei.trim() !== '') : undefined,
         individualSellingPrices: finalSellingPrices,
+        individualPurchasePrices: finalPurchasePrices,
         colors: finalColors,
         colorVariant: selectedCategory === 'Mobile Phones' ? colorVariant : undefined,
         priceVariant: selectedCategory === 'Mobile Phones' ? priceVariant : undefined,
+        purchasePriceVariant: selectedCategory === 'Mobile Phones' ? purchasePriceVariant : undefined,
       }
 
       console.log('Product payload (with URLs):', productPayload)
@@ -578,17 +680,21 @@ export default function AddProductDialog({ open, onOpenChange }: AddProductDialo
                     <div className="flex items-center gap-2 mb-4">
                       <div className="w-2 h-2 bg-green-500 rounded-full"></div>
                       <h4 className="font-medium text-gray-900">IMEI Numbers</h4>
-                      <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">Auto-generated when quantity changes</span>
+                      <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">Manual entry required</span>
                     </div>
                     <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
                       {Array.from({ length: numericQuantity }, (_, i) => (
                         <div key={i} className="space-y-1">
                           <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Device {i + 1} IMEI</label>
                           <Input
+                            inputMode="numeric"
+                            pattern="\\d*"
+                            maxLength={15}
                             value={imeiNumbers[i] || ''}
                             onChange={(e) => {
+                              const digitsOnly = e.target.value.replace(/[^0-9]/g, '').slice(0, 15)
                               const newImeiNumbers = [...imeiNumbers]
-                              newImeiNumbers[i] = e.target.value
+                              newImeiNumbers[i] = digitsOnly
                               setImeiNumbers(newImeiNumbers)
                             }}
                             placeholder={`IMEI ${i + 1}`}
@@ -603,20 +709,10 @@ export default function AddProductDialog({ open, onOpenChange }: AddProductDialo
                 {/* Color and Price Variant Configuration */}
                 {numericQuantity > 0 && (
                   <div className="mt-6 space-y-4 border-t border-gray-200 pt-6">
-                    <div className="grid md:grid-cols-2 gap-4">
+                    {/* Selling price configuration first */}
+                    <div className="space-y-3">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Color Configuration</label>
-                        <select
-                          value={colorVariant}
-                          onChange={(e) => setColorVariant(e.target.value as 'same' | 'different')}
-                          className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white shadow-sm"
-                        >
-                          <option value="same">Same color for all devices</option>
-                          <option value="different">Different colors per device</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Price Configuration</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Selling Price Configuration</label>
                         <select
                           value={priceVariant}
                           onChange={(e) => setPriceVariant(e.target.value as 'same' | 'different')}
@@ -626,9 +722,138 @@ export default function AddProductDialog({ open, onOpenChange }: AddProductDialo
                           <option value="different">Different prices per device</option>
                         </select>
                       </div>
+
+                      {priceVariant === 'same' && (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Selling Price (all devices)</label>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">$</span>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              value={watch('sellingPrice')}
+                              onChange={(e) => setValue('sellingPrice', parseFloat(e.target.value) || 0)}
+                              placeholder="0.00"
+                              className="pl-8 border-gray-200 focus:border-blue-400 focus:ring-blue-400"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {priceVariant === 'different' && (
+                        <div className="bg-white rounded-lg p-4 border border-gray-100 shadow-sm">
+                          <div className="flex items-center gap-2 mb-4">
+                            <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
+                            <h4 className="font-medium text-gray-900">Individual Selling Prices</h4>
+                            <span className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded-full">Per Device</span>
+                          </div>
+                          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {Array.from({ length: numericQuantity }, (_, i) => (
+                              <div key={i} className="space-y-1">
+                                <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Device {i + 1} Price</label>
+                                <div className="relative">
+                                  <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">$</span>
+                                  <Input
+                                    type="number"
+                                    step="0.01"
+                                    value={sellingPrices[i] || ''}
+                                    onChange={(e) => {
+                                      const newSellingPrices = [...sellingPrices]
+                                      newSellingPrices[i] = parseFloat(e.target.value) || 0
+                                      setSellingPrices(newSellingPrices)
+                                    }}
+                                    placeholder="0.00"
+                                    className="pl-8 border-gray-200 focus:border-orange-400 focus:ring-orange-400"
+                                  />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Purchase price configuration comes after selling */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Purchase Price Configuration</label>
+                        <select
+                          value={purchasePriceVariant}
+                          onChange={(e) => setPurchasePriceVariant(e.target.value as 'same' | 'different')}
+                          className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white shadow-sm"
+                        >
+                          <option value="same">Same purchase price for all devices</option>
+                          <option value="different">Different purchase prices per device</option>
+                        </select>
+                      </div>
+
+                      {purchasePriceVariant === 'same' && (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Purchase Price (all devices)</label>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">$</span>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              value={watch('purchasePrice')}
+                              onChange={(e) => setValue('purchasePrice', parseFloat(e.target.value) || 0)}
+                              placeholder="0.00"
+                              className="pl-8 border-gray-200 focus:border-blue-400 focus:ring-blue-400"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {purchasePriceVariant === 'different' && (
+                        <div className="bg-white rounded-lg p-4 border border-gray-100 shadow-sm">
+                          <div className="flex items-center gap-2 mb-4">
+                            <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                            <h4 className="font-medium text-gray-900">Individual Purchase Prices</h4>
+                            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">Per Device</span>
+                          </div>
+                          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {Array.from({ length: numericQuantity }, (_, i) => (
+                              <div key={i} className="space-y-1">
+                                <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Device {i + 1} Purchase Price</label>
+                                <div className="relative">
+                                  <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">$</span>
+                                  <Input
+                                    type="number"
+                                    step="0.01"
+                                    value={purchasePrices[i] || ''}
+                                    onChange={(e) => {
+                                      const newPurchasePrices = [...purchasePrices]
+                                      newPurchasePrices[i] = parseFloat(e.target.value) || 0
+                                      setPurchasePrices(newPurchasePrices)
+                                    }}
+                                    placeholder="0.00"
+                                    className="pl-8 border-gray-200 focus:border-blue-400 focus:ring-blue-400"
+                                  />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
-                    {/* Single Color Input */}
+                    
+                  </div>
+                )}
+              </div>
+
+                  {/* Color configuration (comes after pricing) */}
+                  <div className="mt-2 space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Color Configuration</label>
+                      <select
+                        value={colorVariant}
+                        onChange={(e) => setColorVariant(e.target.value as 'same' | 'different')}
+                        className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white shadow-sm"
+                      >
+                        <option value="same">Same color for all devices</option>
+                        <option value="different">Different colors per device</option>
+                      </select>
+                    </div>
+
                     {colorVariant === 'same' && (
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">Device Color</label>
@@ -640,29 +865,10 @@ export default function AddProductDialog({ open, onOpenChange }: AddProductDialo
                         />
                       </div>
                     )}
-
-                    {/* Single Price Input for Same Price Variant */}
-                    {priceVariant === 'same' && (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Selling Price (all devices)</label>
-                        <div className="relative">
-                          <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">$</span>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            value={watch('sellingPrice')}
-                            onChange={(e) => setValue('sellingPrice', parseFloat(e.target.value) || 0)}
-                            placeholder="0.00"
-                            className="pl-8 border-gray-200 focus:border-blue-400 focus:ring-blue-400"
-                          />
-                        </div>
-                      </div>
-                    )}
                   </div>
-                )}
-              </div>
 
-              {/* Dynamic Color and Selling Price fields */}
+                  {/* Dynamic Color and Selling Price fields */
+                  }
               {numericQuantity > 0 && (
                 <div className="mt-8 space-y-6 border-t border-gray-200 pt-6">
                   {/* Dynamic Color Fields */}
@@ -693,38 +899,7 @@ export default function AddProductDialog({ open, onOpenChange }: AddProductDialo
                     </div>
                   )}
 
-                  {/* Dynamic Selling Price Fields */}
-                  {priceVariant === 'different' && (
-                    <div className="bg-white rounded-lg p-4 border border-gray-100 shadow-sm">
-                      <div className="flex items-center gap-2 mb-4">
-                        <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
-                        <h4 className="font-medium text-gray-900">Individual Selling Prices</h4>
-                        <span className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded-full">Per Device</span>
-                      </div>
-                      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {Array.from({ length: numericQuantity }, (_, i) => (
-                          <div key={i} className="space-y-1">
-                            <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Device {i + 1} Price</label>
-                            <div className="relative">
-                              <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">$</span>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                value={sellingPrices[i] || ''}
-                                onChange={(e) => {
-                                  const newSellingPrices = [...sellingPrices]
-                                  newSellingPrices[i] = parseFloat(e.target.value) || 0
-                                  setSellingPrices(newSellingPrices)
-                                }}
-                                placeholder="0.00"
-                                className="pl-8 border-gray-200 focus:border-orange-400 focus:ring-orange-400"
-                              />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                  
                 </div>
               )}
             </CardContent>
@@ -759,25 +934,23 @@ export default function AddProductDialog({ open, onOpenChange }: AddProductDialo
           />
         </div>
 
-        {/* Pricing and stock */}
-        <div className="grid md:grid-cols-3 gap-4 mt-4">
-          <div>
-            <label className="text-sm font-medium">Purchase Price</label>
-            <Input type="number" step="0.01" {...register('purchasePrice')} />
-          </div>
-          {selectedCategory !== 'Mobile Phones' && (
+        {/* Pricing and stock (non-mobile inline only) */}
+        {selectedCategory !== 'Mobile Phones' && (
+          <div className="grid md:grid-cols-3 gap-4 mt-4">
+            <div>
+              <label className="text-sm font-medium">Purchase Price</label>
+              <Input type="number" step="0.01" {...register('purchasePrice')} />
+            </div>
             <div>
               <label className="text-sm font-medium">Selling Price</label>
               <Input type="number" step="0.01" {...register('sellingPrice')} />
             </div>
-          )}
-          {selectedCategory !== 'Mobile Phones' && (
             <div>
               <label className="text-sm font-medium">Quantity</label>
               <Input type="number" {...register('quantity')} />
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         <div className="grid md:grid-cols-3 gap-4 mt-4">
           <div>

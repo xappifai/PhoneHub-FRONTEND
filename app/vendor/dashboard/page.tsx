@@ -1,6 +1,6 @@
 "use client"
 
-import React from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import ProtectedRoute from '@/components/protected-route'
 import DashboardSidebar from '@/components/dashboard-sidebar'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -15,51 +15,46 @@ import {
   Trash2
 } from 'lucide-react'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { MOCK_TRANSACTIONS } from '@/lib/mock-data'
+import api from '@/lib/api-client'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
-const mockSalesData = [
-  { month: 'Jan', sales: 45000 },
-  { month: 'Feb', sales: 52000 },
-  { month: 'Mar', sales: 48000 },
-  { month: 'Apr', sales: 65000 },
-  { month: 'May', sales: 72000 },
-  { month: 'Jun', sales: 68000 },
-]
+type Analytics = { pageViews: number; inquiries: number; totalSales: number; productViews: { productId: string; productName: string; views: number }[] }
+type ProductLite = { id?: string; _id?: string; name: string; sellingPrice: number; quantity: number; minStock: number }
 
 export default function VendorDashboard() {
-  const stats = [
-    {
-      title: 'Total Sales',
-      value: formatCurrency(245000),
-      change: '+12.5%',
-      icon: DollarSign,
-      positive: true
-    },
-    {
-      title: 'Products',
-      value: '145',
-      change: '+3 this week',
-      icon: Package,
-      positive: true
-    },
-    {
-      title: 'Low Stock Alerts',
-      value: '8',
-      change: '3 critical',
-      icon: AlertTriangle,
-      positive: false
-    },
-    {
-      title: 'Monthly Growth',
-      value: '18.2%',
-      change: '+2.1% vs last month',
-      icon: TrendingUp,
-      positive: true
-    }
-  ]
+  const [analytics, setAnalytics] = useState<Analytics | null>(null)
+  const [products, setProducts] = useState<ProductLite[]>([])
+  const [loading, setLoading] = useState(true)
 
-  const recentTransactions = MOCK_TRANSACTIONS.slice(0, 5)
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const [{ data: a }, { data: p }] = await Promise.all([
+          api.get('/storefront/analytics'),
+          api.get('/products', { params: { limit: 10, sort: '-createdAt' } })
+        ])
+        setAnalytics(a?.data)
+        setProducts((p?.data?.data || p?.data || []).map((x: any) => ({
+          id: x.id || x._id,
+          name: x.name,
+          sellingPrice: x.sellingPrice || x.price || 0,
+          quantity: x.quantity || 0,
+          minStock: x.minStock || 0
+        })))
+      } finally {
+        setLoading(false)
+      }
+    }
+    load()
+  }, [])
+
+  const lowStockCount = useMemo(() => products.filter(p => p.quantity > 0 && p.quantity <= p.minStock).length, [products])
+  const stats = useMemo(() => ([
+    { title: 'Total Sales', value: formatCurrency(analytics?.totalSales || 0), change: '', icon: DollarSign, positive: true },
+    { title: 'Products', value: String(products.length), change: '', icon: Package, positive: true },
+    { title: 'Low Stock Alerts', value: String(lowStockCount), change: '', icon: AlertTriangle, positive: lowStockCount === 0 },
+    { title: 'Page Views', value: String(analytics?.pageViews || 0), change: '', icon: Eye, positive: true }
+  ]), [analytics, products, lowStockCount])
 
   return (
     <ProtectedRoute allowedRoles={['vendor']}>
@@ -122,7 +117,7 @@ export default function VendorDashboard() {
                 <CardContent>
                   <div className="h-80">
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={mockSalesData}>
+                      <LineChart data={(analytics?.productViews || []).slice(0, 6).map(v => ({ month: v.productName, sales: v.views }))}>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="month" />
                         <YAxis />
@@ -159,31 +154,25 @@ export default function VendorDashboard() {
                 </CardHeader>
                 <CardContent className="p-0">
                   <div className="divide-y divide-gray-200 dark:divide-gray-700">
-                    {recentTransactions.map((transaction) => (
+                    {(products || []).slice(0,5).map((transaction: any, idx: number) => (
                       <div key={transaction.id} className="p-6 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
                         <div className="flex items-center justify-between">
                           <div className="flex-1">
-                            <h4 className="font-medium text-gray-900 dark:text-white">
-                              {transaction.description}
-                            </h4>
-                            <p className="text-sm text-gray-600 dark:text-gray-400">
-                              {transaction.customerName} • {formatDate(transaction.date)}
-                            </p>
+                            <h4 className="font-medium text-gray-900 dark:text-white">{transaction.name}</h4>
+                            <p className="text-sm text-gray-600 dark:text-gray-400">Product #{idx + 1}</p>
                             <span className={`inline-block px-2 py-1 text-xs rounded-full mt-1 ${
-                              transaction.status === 'completed'
+                              (transaction.quantity || 0) > 0
                                 ? 'bg-secondary/10 text-secondary'
                                 : 'bg-yellow-50 text-yellow-600 dark:bg-yellow-900/20'
                             }`}>
-                              {transaction.status}
+                              {transaction.quantity > 0 ? 'In stock' : 'Out of stock'}
                             </span>
                           </div>
                           <div className="text-right">
                             <p className={`font-bold ${
-                              transaction.type === 'sale' 
-                                ? 'text-secondary' 
-                                : 'text-red-500'
+                              'text-secondary'
                             }`}>
-                              {transaction.type === 'sale' ? '+' : '-'}{formatCurrency(transaction.amount)}
+                              {formatCurrency(transaction.sellingPrice || transaction.price || 0)}
                             </p>
                             <div className="flex items-center space-x-1 mt-1">
                               <Button variant="ghost" size="icon" className="h-6 w-6">
@@ -205,35 +194,7 @@ export default function VendorDashboard() {
               </Card>
             </div>
 
-            {/* Quick Actions */}
-            <Card className="mt-8">
-              <CardHeader>
-                <CardTitle>Quick Actions</CardTitle>
-                <CardDescription>
-                  Common tasks to manage your store efficiently
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <Button className="h-16 flex flex-col space-y-1">
-                    <Package className="h-5 w-5" />
-                    <span className="text-xs">Add Product</span>
-                  </Button>
-                  <Button variant="outline" className="h-16 flex flex-col space-y-1">
-                    <DollarSign className="h-5 w-5" />
-                    <span className="text-xs">Record Sale</span>
-                  </Button>
-                  <Button variant="outline" className="h-16 flex flex-col space-y-1">
-                    <Eye className="h-5 w-5" />
-                    <span className="text-xs">View Storefront</span>
-                  </Button>
-                  <Button variant="outline" className="h-16 flex flex-col space-y-1">
-                    <TrendingUp className="h-5 w-5" />
-                    <span className="text-xs">Analytics</span>
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+            {/* Quick Actions removed as requested */}
           </div>
         </div>
       </div>

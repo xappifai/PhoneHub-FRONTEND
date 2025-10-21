@@ -34,11 +34,12 @@ interface Vendor {
   rating: number
   totalProducts: number
   logo?: string
+  banner?: string
   phone: string
   email: string
   address: string
-  businessHours: string
-  joinedDate: string
+  businessType?: string
+  createdAt: string
   verified: boolean
 }
 
@@ -49,6 +50,15 @@ export default function MarketplacePage() {
   const [selectedLocation, setSelectedLocation] = useState('all')
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
+
+  // Helper function to validate image URLs
+  const isValidImageUrl = (url: any): boolean => {
+    if (!url) return false
+    if (typeof url !== 'string') return false
+    if (url.trim() === '') return false
+    if (url === 'null' || url === 'undefined') return false
+    return true
+  }
 
   const locations = [
     { value: 'all', label: 'All Locations' },
@@ -72,8 +82,6 @@ export default function MarketplacePage() {
   const fetchVendors = async () => {
     try {
       setLoading(true)
-      
-
       const params: any = {
         page: 1,
         limit: 50
@@ -85,10 +93,16 @@ export default function MarketplacePage() {
       const response = await api.get('/buyer/vendors', { params })
       
       if (response.data.success) {
+        // Debug: Check vendor data structure
+        if (response.data.data.length > 0) {
+          console.log('✅ Vendors fetched:', response.data.data.length)
+          console.log('📸 First vendor logo:', response.data.data[0].logo)
+          console.log('🎨 First vendor banner:', response.data.data[0].banner)
+        }
         setVendors(response.data.data)
       }
     } catch (error) {
-      console.error('Error fetching vendors:', error)
+      console.error('❌ Error fetching vendors:', error)
       toast.error('Failed to load vendors')
     } finally {
       setLoading(false)
@@ -234,18 +248,49 @@ export default function MarketplacePage() {
           ) : (
             <div className={viewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6' : 'space-y-4'}>
               {filteredVendors.map((vendor) => (
-                <Card key={vendor._id} className="hover:shadow-lg transition-shadow">
+                <Card key={vendor._id} className="hover:shadow-lg transition-shadow overflow-hidden">
+                  {/* Vendor Banner */}
+                  {isValidImageUrl(vendor.banner) && (
+                    <div className="h-24 w-full relative bg-gradient-to-r from-blue-500 to-purple-500">
+                      <Image
+                        src={vendor.banner!}
+                        alt={`${vendor.businessName} banner`}
+                        fill
+                        className="object-cover"
+                        onError={(e) => {
+                          const target = e.target as HTMLElement
+                          if (target && target.parentElement) {
+                            target.parentElement.style.display = 'none'
+                          }
+                        }}
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />
+                    </div>
+                  )}
                   <CardContent className="p-6">
                     <div className="flex items-start gap-4 mb-4">
-                      <div className="w-16 h-16 bg-gray-200 dark:bg-gray-700 rounded-lg overflow-hidden flex-shrink-0">
-                        {vendor.logo && (
-                          <Image
-                            src={vendor.logo}
-                            alt={vendor.businessName}
-                            width={64}
-                            height={64}
-                            className="w-full h-full object-cover"
-                          />
+                      <div className="w-16 h-16 bg-gray-200 dark:bg-gray-700 rounded-lg overflow-hidden flex-shrink-0 relative">
+                        {isValidImageUrl(vendor.logo) ? (
+                          <div className="relative w-16 h-16 rounded-lg overflow-hidden shadow-md border border-gray-200 dark:border-gray-700">
+                            <Image
+                              src={vendor.logo!}
+                              alt={vendor.businessName}
+                              width={64}
+                              height={64}
+                              className="w-full h-full object-cover hover:scale-110 transition-transform duration-200"
+                              onError={(e) => {
+                                console.log('❌ Failed to load logo:', vendor.logo)
+                                const target = e.target as HTMLElement
+                                if (target && target.parentElement && target.parentElement.parentElement) {
+                                  target.parentElement.parentElement.innerHTML = `<div class="w-16 h-16 rounded-lg bg-gradient-to-br from-blue-100 to-purple-100 dark:from-blue-900 dark:to-purple-900 flex items-center justify-center border border-gray-200 dark:border-gray-700"><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-blue-600 dark:text-blue-400"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" x2="21" y1="6" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg></div>`
+                                }
+                              }}
+                            />
+                          </div>
+                        ) : (
+                          <div className="w-16 h-16 rounded-lg bg-gradient-to-br from-blue-100 to-purple-100 dark:from-blue-900 dark:to-purple-900 flex items-center justify-center border border-gray-200 dark:border-gray-700">
+                            <Store className="h-8 w-8 text-blue-600 dark:text-blue-400" />
+                          </div>
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
@@ -254,8 +299,8 @@ export default function MarketplacePage() {
                             {vendor.businessName}
                           </h3>
                           {vendor.verified && (
-                            <span className="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs">
-                              Verified
+                            <span className="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">
+                              ✓ Verified
                             </span>
                           )}
                         </div>
@@ -297,12 +342,22 @@ export default function MarketplacePage() {
 
                     <div className="space-y-2 text-xs text-gray-600 dark:text-gray-400 mb-4">
                       <div className="flex items-center gap-2">
-                        <span className="font-medium">Hours:</span>
-                        <span>{vendor.businessHours}</span>
+                        <span className="font-medium">Type:</span>
+                        <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
+                          {vendor.businessType || 'Retail'}
+                        </span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="font-medium">Joined:</span>
-                        <span>{new Date(vendor.joinedDate).toLocaleDateString()}</span>
+                        <span className="font-medium">Phone:</span>
+                        <span className="font-mono">{vendor.phone || 'Not provided'}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">Member since:</span>
+                        <span>{new Date(vendor.createdAt).toLocaleDateString('en-US', {
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric'
+                        })}</span>
                       </div>
                     </div>
 

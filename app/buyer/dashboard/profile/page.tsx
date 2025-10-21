@@ -39,7 +39,13 @@ export default function ProfilePage() {
     preferredContact: 'whatsapp' as 'whatsapp' | 'email',
     address: '',
     city: '',
-    interests: [] as string[]
+    interests: [] as string[],
+    notifications: {
+      email: true,
+      wishlistSale: true,
+      inquiryResponses: true,
+      newProducts: false
+    }
   })
 
   const availableInterests = [
@@ -62,15 +68,39 @@ export default function ProfilePage() {
         const userData = response.data.data
         setUserData(userData)
         
+        // Handle address - if it's an object, convert to string
+        let addressString = ''
+        if (userData.address) {
+          if (typeof userData.address === 'object') {
+            // If address is an object, format it properly
+            const addr = userData.address
+            addressString = [
+              addr.street,
+              addr.city,
+              addr.state,
+              addr.country,
+              addr.postalCode
+            ].filter(Boolean).join(', ')
+          } else {
+            addressString = userData.address
+          }
+        }
+        
         // Initialize form data from fetched user data
         setFormData({
           name: userData.name || '',
           email: userData.email || '',
           phone: userData.phone || '',
           preferredContact: userData.preferredContact || profile.preferredContact || 'whatsapp',
-          address: userData.address || '',
-          city: userData.city || '',
-          interests: userData.interests || profile.interests || []
+          address: addressString || profile.address || '',
+          city: userData.city || profile.city || '',
+          interests: userData.interests || profile.interests || [],
+          notifications: {
+            email: profile.notifications?.email ?? true,
+            wishlistSale: profile.notifications?.wishlistSale ?? true,
+            inquiryResponses: profile.notifications?.inquiryResponses ?? true,
+            newProducts: profile.notifications?.newProducts ?? false
+          }
         })
       }
     } catch (error) {
@@ -113,8 +143,17 @@ export default function ProfilePage() {
       })
       
       if (response.data.success) {
-        // Also update local store
-        updateProfile(formData)
+        // Also update local store with all preferences
+        updateProfile({
+          name: formData.name,
+          email: formData.email,
+          phone: formData.phone,
+          preferredContact: formData.preferredContact,
+          address: formData.address,
+          city: formData.city,
+          interests: formData.interests,
+          notifications: formData.notifications
+        })
         setUserData(response.data.data)
         setIsEditing(false)
         toast.success('Profile updated successfully!')
@@ -128,14 +167,37 @@ export default function ProfilePage() {
   }
 
   const handleCancel = () => {
+    // Handle address - if it's an object, convert to string
+    let addressString = ''
+    if (userData?.address) {
+      if (typeof userData.address === 'object') {
+        const addr = userData.address
+        addressString = [
+          addr.street,
+          addr.city,
+          addr.state,
+          addr.country,
+          addr.postalCode
+        ].filter(Boolean).join(', ')
+      } else {
+        addressString = userData.address
+      }
+    }
+    
     setFormData({
       name: userData?.name || profile.name || '',
       email: userData?.email || profile.email || '',
       phone: userData?.phone || profile.phone || '',
       preferredContact: profile.preferredContact || 'whatsapp',
-      address: profile.address || '',
+      address: addressString || profile.address || '',
       city: profile.city || '',
-      interests: profile.interests || []
+      interests: profile.interests || [],
+      notifications: {
+        email: profile.notifications?.email ?? true,
+        wishlistSale: profile.notifications?.wishlistSale ?? true,
+        inquiryResponses: profile.notifications?.inquiryResponses ?? true,
+        newProducts: profile.notifications?.newProducts ?? false
+      }
     })
     setIsEditing(false)
   }

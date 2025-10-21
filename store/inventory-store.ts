@@ -48,9 +48,11 @@ export interface ProductItem {
   sku: string
   imeiNumbers?: string[]
   individualSellingPrices?: number[] // For mobile phones with individual pricing
+  individualPurchasePrices?: number[] // For mobile phones with individual purchase pricing
   colors?: string[] // For mobile phones with individual colors
   colorVariant?: 'same' | 'different' // Color configuration type
   priceVariant?: 'same' | 'different' // Price configuration type
+  purchasePriceVariant?: 'same' | 'different' // Purchase price configuration type
   barcode?: string
   description?: string
   purchasePrice: number

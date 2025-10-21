@@ -20,7 +20,10 @@ import {
   TrendingUp,
   Activity,
   Heart,
-  Eye
+  Eye,
+  MessageCircle,
+  Bell,
+  User
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -40,8 +43,11 @@ const vendorNavItems: SidebarItem[] = [
   { label: 'Inventory', href: '/vendor/dashboard/inventory', icon: Package },
   { label: 'Ledger', href: '/vendor/dashboard/ledger', icon: Calculator },
   { label: 'Storefront', href: '/vendor/dashboard/storefront', icon: Store },
+  { label: 'Inquiries', href: '/vendor/dashboard/inquiries', icon: MessageCircle },
   { label: 'Subscriptions', href: '/vendor/dashboard/subscriptions', icon: CreditCard },
   { label: 'Reports', href: '/vendor/dashboard/reports', icon: FileText },
+  { label: 'Notifications', href: '/vendor/dashboard/notifications', icon: Bell },
+  { label: 'Profile', href: '/vendor/dashboard/profile', icon: User },
   { label: 'Settings', href: '/vendor/dashboard/settings', icon: Settings },
 ]
 
@@ -51,6 +57,7 @@ const buyerNavItems: SidebarItem[] = [
   { label: 'Wishlist', href: '/buyer/dashboard/wishlist', icon: Heart },
   { label: 'Compare', href: '/buyer/dashboard/compare', icon: TrendingUp },
   { label: 'Recently Viewed', href: '/buyer/dashboard/recent', icon: Eye },
+  { label: 'My Inquiries', href: '/buyer/dashboard/inquiries', icon: MessageCircle },
   { label: 'Profile', href: '/buyer/dashboard/profile', icon: Users },
   { label: 'Settings', href: '/buyer/dashboard/settings', icon: Settings },
 ]
